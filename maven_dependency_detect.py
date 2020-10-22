@@ -1,5 +1,4 @@
 import os
-import zipfile
 
 
 def unzip_jar(jar_path):
@@ -191,6 +190,8 @@ def detect(jar_path, vulnerable_comp_excel_path, res_save_path=None):
     Returns:
         [type]: [description]
     """
+    # 解析jar获取依赖包信息
+    import zipfile
     unzip_jar_dir = unzip_jar(jar_path)
     pom_xml_file_list = get_all_pom_xml(unzip_jar_dir)
     all_dependency_dict = {}
@@ -200,10 +201,12 @@ def detect(jar_path, vulnerable_comp_excel_path, res_save_path=None):
             pom_path)
     # print(all_dependency_dict)
 
+    # 解析excel文件获取风险包信息
     vulnerable_comp_dict = load_vulnerable_comp_excel(
         vulnerable_comp_excel_path)
     # print(vulnerable_comp_dict)
 
+    # 比对jar依赖包和风险包信息并生成结果
     compare_res = compare(all_dependency_dict, vulnerable_comp_dict)
     print_pretty_dict(compare_res)
     gene_compare_res_excel(compare_res, res_save_path)
