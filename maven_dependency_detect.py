@@ -180,12 +180,13 @@ def compare(dependency_dict, vulnerable_comp_dict):
     return compare_res
 
 
-def detect(jar_path, vulnerable_comp_excel_path):
-    """检测主功能入口
+def detect(jar_path, vulnerable_comp_excel_path, res_save_path=None):
+    """比对检测主体
 
     Args:
         jar_path ([type]): [description]
         vulnerable_comp_excel_path ([type]): [description]
+        res_save_path ([type], optional): [description]. Defaults to None.
 
     Returns:
         [type]: [description]
@@ -197,7 +198,7 @@ def detect(jar_path, vulnerable_comp_excel_path):
         package_name = pom_path[pom_path.find('maven')+6:]
         all_dependency_dict[package_name] = get_package_dependency_dict(
             pom_path)
-    print(all_dependency_dict)
+    # print(all_dependency_dict)
 
     vulnerable_comp_dict = load_vulnerable_comp_excel(
         vulnerable_comp_excel_path)
@@ -205,7 +206,12 @@ def detect(jar_path, vulnerable_comp_excel_path):
 
     compare_res = compare(all_dependency_dict, vulnerable_comp_dict)
     print_pretty_dict(compare_res)
-    gene_compare_res_excel(compare_res)
+    gene_compare_res_excel(compare_res, res_save_path)
+
+    # 删除解压jar文件夹
+    import shutil
+    shutil.rmtree(unzip_jar_dir)
+
     return compare_res
 
 
@@ -214,12 +220,35 @@ def print_pretty_dict(d):
     print(json.dumps(d, indent=4, sort_keys=True))
 
 
-def gene_compare_res_excel(compare_res):
-    # todo 生成检测结果excel
+def gene_compare_res_excel(compare_res, save_path=None):
+    """生成检测结果excel
+
+    Args:
+        compare_res ([type]): [description]
+        save_path ([type], optional): [description]. Defaults to None.
+    """
     import xlwt
     wb = xlwt.Workbook()
     sheet1 = wb.add_sheet('jar包风险依赖检测结果')
-    row0 = ['依赖组件', 'jar包依赖版本', '有风险版本', '']
+    compare_res_list = convert_compare_res_to_list(compare_res)
+    row_name_list = ['依赖包', 'jar包依赖版本', '有风险版本']
+    for i, row_name in enumerate(row_name_list):
+        sheet1.write(0, i, row_name)
+    for r_ind in range(len(compare_res_list)):
+        for c_ind in range(len(row_name_list)):
+            sheet1.write(r_ind+1, c_ind, compare_res_list[r_ind][c_ind])
+    wb.save(save_path if save_path else './data/对比检测结果.xlsx')
+
+
+def convert_compare_res_to_list(compare_res):
+    compare_res_list = []
+    for package_name, detail_list in compare_res.items():
+        for detail_dict in detail_list:
+            # 拼接顺序参照 gene_compare_res_excel 中 excel 列名顺序
+            compare_res_list.append(['.'.join([detail_dict['package_group'], package_name]),
+                                     detail_dict['package_version'], detail_dict['vulnerable_version']])
+    print(compare_res_list)
+    return compare_res_list
 
 
 detect('data/mybatis-3.5.6.jar', 'data/依赖漏洞.xlsx')
