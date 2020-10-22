@@ -10,6 +10,7 @@ def unzip_jar(jar_path):
     Returns:
         [type]: [description]
     """
+    import zipfile
     jar_dir = os.path.abspath(os.path.dirname(jar_path))
     unzip_jar_dir = os.path.join(jar_dir, 'unzip_jar_dir')
     if not os.path.exists(unzip_jar_dir):
@@ -78,7 +79,7 @@ def get_tag_name(elem):
     return elem.tag.split('}')[-1]
 
 
-def load_vulnerable_comp_excel(excel_path):
+def load_vulnerable_package_excel(excel_path):
     """从excel加载漏洞组件及其版本
 
     Args:
@@ -93,49 +94,48 @@ def load_vulnerable_comp_excel(excel_path):
     sheet1 = wb.sheet_by_index(0)
     # print(sheet1.nrows, sheet1.ncols)
     nrows = sheet1.nrows
-    vulnerable_comp_dict = {}
+    vulnerable_package_dict = {}
     for r_ind in range(1, nrows):
         row = sheet1.row_values(r_ind)
-        comp_name = row[0].strip().lower()
+        package_name = row[0].strip().lower()
         raw_version_list = str(row[1]).split(';')
         version_list = []
         for version in raw_version_list:
             if version.startswith('<='):
                 version_list.append(('<=', version[2:]))
             elif version.startswith('<'):
-                version_list.append(('<'), version[1:])
+                version_list.append(('<', version[1:]))
             elif '-' in version:
                 version_list.append(('-', version))
             elif version.endswith('.x'):
                 version_list.append(('x', version))
             else:
                 version_list.append(('=', version))
-        if not comp_name in vulnerable_comp_dict:
-            vulnerable_comp_dict[comp_name] = version_list
+        if not package_name in vulnerable_package_dict:
+            vulnerable_package_dict[package_name] = version_list
         else:
-            vulnerable_comp_dict[comp_name].append(version_list)
-    return vulnerable_comp_dict
+            vulnerable_package_dict[package_name].append(version_list)
+    return vulnerable_package_dict
 
 
-def compare(dependency_dict, vulnerable_comp_dict):
-    """比对jar依赖和漏洞组件表
+def compare(dependency_dict, vulnerable_package_dict):
+    """比对jar依赖包和漏洞包
 
     Args:
         dependency_dict ([type]): [description]
-        vulnerable_comp_dict ([type]): [description]
+        vulnerable_package_dict ([type]): [description]
 
     Returns:
         [type]: [description]
     """
     compare_res = {}
-    for package in dependency_dict:
-        for comp, detail_list in dependency_dict[package].items():
-            if comp in vulnerable_comp_dict:
-                version_list = vulnerable_comp_dict[comp]
+    for pom in dependency_dict:
+        for package, detail_list in dependency_dict[pom].items():
+            if package in vulnerable_package_dict:
+                version_list = vulnerable_package_dict[package]
                 for detail in detail_list:
-                    comp_ver = detail['version']
-                    comp_ver_list = comp_ver.split('.')
-
+                    package_ver = detail['version']
+                    package_ver_list = package_ver.split('.')
                     for typ, vul_ver in version_list:
                         is_vul = True
                         if typ == '-':
@@ -146,52 +146,52 @@ def compare(dependency_dict, vulnerable_comp_dict):
 
                         if typ == '<=':
                             for i, n in enumerate(vul_ver_list):
-                                if n > comp_ver_list[i]:
+                                if package_ver_list[i] > n:
                                     is_vul = False
                                     break
                         elif typ == '<':
                             for i, n in enumerate(vul_ver_list):
-                                if n >= comp_ver_list[i]:
+                                if package_ver_list[i] >= n:
                                     is_vul = False
                                     break
                         elif typ == '-':
-                            for i, n in enumerate(comp_ver_list):
+                            for i, n in enumerate(package_ver_list):
                                 if n < vul_ver_list[0][i] or n > vul_ver_list[1][i]:
                                     is_vul = False
                                     break
                         elif typ == 'x':
                             for i, n in enumerate(vul_ver_list[:-1]):
-                                if n != comp_ver_list[i]:
+                                if n != package_ver_list[i]:
                                     is_vul = False
                                     break
                         else:  # =
-                            short_len = min(len(comp_ver), len(vul_ver))
-                            if comp_ver[:short_len] != vul_ver[:short_len]:
+                            short_len = min(len(package_ver), len(vul_ver))
+                            if package_ver[:short_len] != vul_ver[:short_len]:
                                 is_vul = False
+
                         if is_vul:
-                            compare_detail = {'package_version': comp_ver, 'vulnerable_version': vul_ver,
-                                              'compare_type': typ, 'package_group': detail['groupId']}
-                            if comp not in compare_res:
-                                compare_res[comp] = [compare_detail]
+                            compare_detail = {'package_version': package_ver, 'vulnerable_version': vul_ver,
+                                              'compare_type': typ, 'package_group': detail['groupId'], 'pom_file': pom}
+                            if package not in compare_res:
+                                compare_res[package] = [compare_detail]
                             else:
-                                compare_res[comp].append(compare_detail)
+                                compare_res[package].append(compare_detail)
 
     return compare_res
 
 
-def detect(jar_path, vulnerable_comp_excel_path, res_save_path=None):
+def detect(jar_path, vulnerable_package_excel_path, res_save_path=None):
     """比对检测主体
 
     Args:
         jar_path ([type]): [description]
-        vulnerable_comp_excel_path ([type]): [description]
+        vulnerable_package_excel_path ([type]): [description]
         res_save_path ([type], optional): [description]. Defaults to None.
 
     Returns:
         [type]: [description]
     """
     # 解析jar获取依赖包信息
-    import zipfile
     unzip_jar_dir = unzip_jar(jar_path)
     pom_xml_file_list = get_all_pom_xml(unzip_jar_dir)
     all_dependency_dict = {}
@@ -202,12 +202,12 @@ def detect(jar_path, vulnerable_comp_excel_path, res_save_path=None):
     # print(all_dependency_dict)
 
     # 解析excel文件获取风险包信息
-    vulnerable_comp_dict = load_vulnerable_comp_excel(
-        vulnerable_comp_excel_path)
-    # print(vulnerable_comp_dict)
+    vulnerable_package_dict = load_vulnerable_package_excel(
+        vulnerable_package_excel_path)
+    # print(vulnerable_package_dict)
 
     # 比对jar依赖包和风险包信息并生成结果
-    compare_res = compare(all_dependency_dict, vulnerable_comp_dict)
+    compare_res = compare(all_dependency_dict, vulnerable_package_dict)
     print_pretty_dict(compare_res)
     gene_compare_res_excel(compare_res, res_save_path)
 
@@ -234,24 +234,56 @@ def gene_compare_res_excel(compare_res, save_path=None):
     wb = xlwt.Workbook()
     sheet1 = wb.add_sheet('jar包风险依赖检测结果')
     compare_res_list = convert_compare_res_to_list(compare_res)
-    row_name_list = ['依赖包', 'jar包依赖版本', '有风险版本']
+    row_name_list = ['依赖包', 'jar包依赖版本', '有风险版本', '依赖所在pom文件']
     for i, row_name in enumerate(row_name_list):
         sheet1.write(0, i, row_name)
     for r_ind in range(len(compare_res_list)):
         for c_ind in range(len(row_name_list)):
             sheet1.write(r_ind+1, c_ind, compare_res_list[r_ind][c_ind])
-    wb.save(save_path if save_path else './data/对比检测结果.xlsx')
+    wb.save(save_path if save_path else './风险依赖包对比检测结果.xlsx')
 
 
 def convert_compare_res_to_list(compare_res):
+    """将比对结果字典转化为列表，方便输出到excel中
+
+    Args:
+        compare_res ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
     compare_res_list = []
     for package_name, detail_list in compare_res.items():
         for detail_dict in detail_list:
             # 拼接顺序参照 gene_compare_res_excel 中 excel 列名顺序
-            compare_res_list.append(['.'.join([detail_dict['package_group'], package_name]),
-                                     detail_dict['package_version'], detail_dict['vulnerable_version']])
-    print(compare_res_list)
+            jar_dep_package_name = package_name + \
+                ' [' + detail_dict['package_group'] + ']'
+            vulnerable_version = detail_dict['compare_type'] + \
+                detail_dict['vulnerable_version'] if detail_dict['compare_type'] in [
+                    '<', '<='] else detail_dict['vulnerable_version']
+            pom_file_abs_path = os.path.join(
+                'META_INF', 'maven', detail_dict['pom_file'])
+            compare_res_list.append(
+                [jar_dep_package_name, detail_dict['package_version'], vulnerable_version, pom_file_abs_path])
+    # print(compare_res_list)
     return compare_res_list
 
 
-detect('data/mybatis-3.5.6.jar', 'data/依赖漏洞.xlsx')
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--jar_path', '-j', required=True,
+                        type=str, help="指定待检测jar包路径")
+    parser.add_argument('--vul_path', '-p', required=True,
+                        type=str, help="指定风险包excel文件路径")
+    parser.add_argument('--save_path', '-s', required=True,
+                        type=str, help="输出结果保存路径")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    # python maven_dependency_detect.py -j ./data/mybatis-3.5.6.jar -p ./data/依赖漏洞.xlsx -s ./data/风险依赖包比对检测结果.xlsx
+    detect(jar_path=args.jar_path,
+           vulnerable_package_excel_path=args.vul_path, res_save_path=args.save_path)
